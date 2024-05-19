@@ -1,0 +1,2 @@
+.GLOBAL xpeek
+.GLOBAL GLOBADDR
