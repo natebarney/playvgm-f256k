@@ -5,11 +5,8 @@
 .SEGMENT "DATA"
 
 delay_samp: .RES 2
-sample_counter: .RES 4
-sample_diff: .RES 4
-
-.EXPORT sample_counter
-.EXPORT sample_diff
+sample_counter: .RES 3
+sample_diff: .RES 3
 
 .SEGMENT "CODE"
 
@@ -26,8 +23,6 @@ sample_diff: .RES 4
     sta sample_counter+1
     lda irq_sample_counter+2
     sta sample_counter+2
-    lda irq_sample_counter+3
-    sta sample_counter+3
 
     plp                         ; restore flags
     pla                         ; restore accumulator
@@ -52,21 +47,17 @@ sample_diff: .RES 4
     lda sample_counter+2
     sbc irq_sample_counter+2
     sta sample_diff+2
-    lda sample_counter+3
-    sbc irq_sample_counter+3
-    sta sample_diff+3
 
     ; restore flags
     plp
 
     ; if high bit of high byte of sample_diff is set, result was negative
-    lda sample_diff+3
+    lda sample_diff+2
     bmi nowait
 
     ; if bitwise OR of all sample_diff bytes is zero, result was zero
     ora sample_diff
     ora sample_diff+1
-    ora sample_diff+2
     beq nowait
 
     ; if we got here, result was positive, so signal to wait by returning
@@ -160,9 +151,6 @@ add_delay:
     lda sample_counter+2
     adc #0
     sta sample_counter+2
-    lda sample_counter+3
-    adc #0
-    sta sample_counter+3
     jmp vgm_update
 
 end:

@@ -3,7 +3,7 @@
 
 .SEGMENT "DATA"
 
-irq_sample_counter: .RES 4
+irq_sample_counter: .RES 3
 old_handler: .RES 2
 old_int_mask_0: .RES 1
 old_int_mask_1: .RES 1
@@ -54,11 +54,10 @@ SAMPLES_PER_FRAME = SAMPLES_60FPS ; set to match framerate
     sta INT_PEND_0
     sta INT_PEND_1
 
-    ; clear 32-bit sample counter
+    ; clear 24-bit sample counter
     stz irq_sample_counter
     stz irq_sample_counter+1
     stz irq_sample_counter+2
-    stz irq_sample_counter+3
 
     cli
     rts
@@ -137,7 +136,7 @@ not_sof:
 
 .PROC irq_start_of_frame
 
-    ; add to 32-bit sample counter
+    ; add to 24-bit sample counter
     clc
     lda irq_sample_counter
     adc #<SAMPLES_PER_FRAME
@@ -148,9 +147,6 @@ not_sof:
     lda irq_sample_counter+2
     adc #^SAMPLES_PER_FRAME ; almost certainly zero, but you never know
     sta irq_sample_counter+2
-    lda irq_sample_counter+3
-    adc #0
-    sta irq_sample_counter+3
 
 done:
     rts
