@@ -1,44 +1,101 @@
+.INCLUDE "irq.inc"
+.INCLUDE "mmu.inc"
 .INCLUDE "vgm.inc"
-.INCLUDE "xpeek.inc"
-
-OPL3_ADDR_0 = $d580
-OPL3_DATA = $d581
-OPL3_ADDR_1 = $d582
-
-T0_CTR = $d650
-UP = %00001000
-LD = %00000100
-CLR = %00000010
-EN = %00000001
-
-T0_STAT = $d650
-EQ = %00000001
-
-T0_VAL = $d651
-
-T0_CMP_CTR = $d654
-RELD = %00000010
-RECLR = %00000001
-
-T0_CMP = $d655
-
-;ONE_FRAME = $0666ff
-ONE_FRAME = $063000
 
 .SEGMENT "DATA"
-delay_samp: .res 2
+
+delay_samp: .RES 2
+sample_counter: .RES 4
+sample_diff: .RES 4
+
+.EXPORT sample_counter
+.EXPORT sample_diff
 
 .SEGMENT "CODE"
 
-.proc playvgm
+.PROC vgm_start
 
-stz delay_samp
-stz delay_samp+1
+    pha                         ; save accumulator
+    php                         ; save flags
+    sei                         ; disable interrupts
+
+    ; copy irq_sample_counter to sample_counter
+    lda irq_sample_counter
+    sta sample_counter
+    lda irq_sample_counter+1
+    sta sample_counter+1
+    lda irq_sample_counter+2
+    sta sample_counter+2
+    lda irq_sample_counter+3
+    sta sample_counter+3
+
+    plp                         ; restore flags
+    pla                         ; restore accumulator
+    rts
+
+.ENDPROC
+
+.PROC vgm_subtract_counter
+
+    ; save flags, then disable interrupts
+    php
+    sei
+
+    ; subtract irq_sample_counter from sample_counter into sample_diff
+    sec
+    lda sample_counter
+    sbc irq_sample_counter
+    sta sample_diff
+    lda sample_counter+1
+    sbc irq_sample_counter+1
+    sta sample_diff+1
+    lda sample_counter+2
+    sbc irq_sample_counter+2
+    sta sample_diff+2
+    lda sample_counter+3
+    sbc irq_sample_counter+3
+    sta sample_diff+3
+
+    ; restore flags
+    plp
+
+    ; if high bit of high byte of sample_diff is set, result was negative
+    lda sample_diff+3
+    bmi nowait
+
+    ; if bitwise OR of all sample_diff bytes is zero, result was zero
+    ora sample_diff
+    ora sample_diff+1
+    ora sample_diff+2
+    beq nowait
+
+    ; if we got here, result was positive, so signal to wait by returning
+    ; non-zero in the accumulator
+    lda #$ff
+    bne done
+
+    ; if we got here, result was not positive, so signal not to wait by
+    ; returning zero in the accumulator
+nowait:
+    lda #0
+
+done:
+    rts
+
+.ENDPROC
+
+.PROC vgm_update
+
+    ; if (sample_counter - irq_sample_counter) > 0, return
+    jsr vgm_subtract_counter
+    beq continue
+    rts
+continue:
 
 playloop:
-    jsr xpeek
+    jsr mmu_read
     cmp #$66
-    beq end
+    beq rewind
     cmp #$5a
     beq opl2_cmd
     cmp #$5e
@@ -53,118 +110,62 @@ playloop:
     beq delay_882_cmd
     bra playloop
 
-end:
-    rts
-
-opl2_cmd:
-    jsr xpeek
-    sta OPL3_ADDR_0
-    jsr xpeek
-    sta OPL3_DATA
+rewind:
+    jsr mmu_seek
     bra playloop
 
+opl2_cmd:
+    jsr mmu_read
+    sta OPL3_ADDR_0
+    bra opl_cmd
+
 opl3_cmd:
-    jsr xpeek
+    jsr mmu_read
     sta OPL3_ADDR_1
-    jsr xpeek
+
+opl_cmd:
+    jsr mmu_read
     sta OPL3_DATA
     bra playloop
 
 delay_cmd:
-    jsr xpeek
-    clc
-    adc delay_samp
+    jsr mmu_read
     sta delay_samp
-    php
-    jsr xpeek
-    plp
-    adc delay_samp+1
+    jsr mmu_read
     sta delay_samp+1
-    jsr sample_delay
-    bra playloop
+    bra add_delay
 
 delay_735_cmd:
-    lda #$df
-    clc
-    adc delay_samp
+    lda #<735
     sta delay_samp
-    php
-    lda #$02
-    plp
-    adc delay_samp+1
+    lda #>735
     sta delay_samp+1
-    jsr sample_delay
-    bra playloop
+    bra add_delay
 
 delay_882_cmd:
-    lda #$72
+    lda #<882
+    sta delay_samp
+    lda #>882
+    sta delay_samp+1
+    bra add_delay
+
+add_delay:
     clc
+    lda sample_counter
     adc delay_samp
-    sta delay_samp
-    php
-    lda #$03
-    plp
+    sta sample_counter
+    lda sample_counter+1
     adc delay_samp+1
-    sta delay_samp+1
-    jsr sample_delay
-    jmp playloop
+    sta sample_counter+1
+    lda sample_counter+2
+    adc #0
+    sta sample_counter+2
+    lda sample_counter+3
+    adc #0
+    sta sample_counter+3
+    jmp vgm_update
 
-.endproc
-
-.proc sample_delay
-
-    ; if delay_samp >= 735, subtract 735, delay 1/60 sec, and loop again
-    lda #$02
-    cmp delay_samp+1
-    beq next
-    bcs done
-    bra subtract
-next:
-    lda #$df
-    cmp delay_samp
-    bcs done
-    bra subtract
-
-done:
+end:
     rts
-
-subtract:
-    sec
-    lda delay_samp
-    sbc #$df
-    sta delay_samp
-    lda delay_samp+1
-    sbc #$02
-    sta delay_samp+1
-
-    ; store 1/60 second's worth of ticks in timer 0 value and compare registers
-    lda #<ONE_FRAME
-    sta T0_VAL
-    sta T0_CMP
-    lda #>ONE_FRAME
-    sta T0_VAL+1
-    sta T0_CMP+1
-    lda #^ONE_FRAME
-    sta T0_VAL+2
-    sta T0_CMP+2
-
-    ; load value on timer 0 completion
-    lda #RELD
-    sta T0_CMP_CTR
-
-    ; clear timer 0
-    lda #CLR
-    sta T0_CTR
-
-    ; count up, no load, no clear, enable
-    lda #(UP | EN)
-    sta T0_CTR
-
-    ; wait for timer to complete
-loop:
-    lda T0_STAT
-    beq loop
-
-    bra sample_delay
 
 .endproc

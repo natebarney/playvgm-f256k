@@ -1,21 +1,29 @@
-.include "xpeek.inc"
-.include "vgm.inc"
+.INCLUDE "irq.inc"
+.INCLUDE "mmu.inc"
+.INCLUDE "vgm.inc"
 
-DATAADDR = $010000
+data_addr = $010000
 
 .proc main
 
-    stz $01
+    stz MMU_IO_CTRL
 
-    ; copy DATAADDR to GLOBADDR
-    lda #<DATAADDR
-    sta GLOBADDR
-    lda #>DATAADDR
-    sta GLOBADDR+1
-    lda #^DATAADDR
-    sta GLOBADDR+2
+    jsr mmu_init ; initialize MMU library
 
-    jsr playvgm
-    bra main
+    ; seek to beginning of music data
+    lda #<data_addr
+    sta mmu_seekaddr
+    lda #>data_addr
+    sta mmu_seekaddr+1
+    lda #^data_addr
+    sta mmu_seekaddr+2
+    jsr mmu_seek
+
+    jsr irq_install
+    jsr vgm_start
+
+loop:
+    jsr vgm_update
+    bra loop
 
 .endproc

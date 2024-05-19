@@ -1,5 +1,5 @@
 PROGRAM=playvgm
-MODULES=main xpeek vgm pgx
+MODULES=main mmu vgm irq pgx
 DEPDIR=.deps
 
 PGXFILE=$(addsuffix .pgx,$(PROGRAM))
@@ -12,7 +12,7 @@ DEPS=$(addprefix $(DEPDIR)/,$(addsuffix .d,$(MODULES)))
 all: $(DEPS) $(PGXFILE)
 
 $(PGXFILE): playvgm.cfg $(OBJECTS)
-	ld65 -o $@ -Ln $(LABELS) -m $(MAPFILE) -C $^
+	ld65 -o $@ -Ln $(LABELS) -m $(MAPFILE) -vm -C $^
 
 $(DEPDIR)/%.d: %.s
 	@mkdir -p $(DEPDIR)
